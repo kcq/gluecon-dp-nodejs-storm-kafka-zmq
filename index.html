@@ -1,0 +1,454 @@
+<!DOCTYPE html><html><head><title></title><meta charset='utf-8'><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" /><link href='big.css' rel='stylesheet' type='text/css' /><script src='big.js'></script>
+<link rel="stylesheet" href="highlight.xcode.css">
+<script src="highlight.pack.js"></script>
+<script>
+hljs.tabReplace = '  ';
+hljs.initHighlightingOnLoad();</script>
+</head><body>
+<div>Building<br> a <em>distributed</em> data platform<br> with <em>Node.js</em>, Storm,<br> Kafka, and ZeroMQ<br><br><em>Kyle Quest</em><br>@kcqon<br>https://linkedin.com/in/kylequest<br><em>#gluecon</em></div>
+<div>To build a data platorm you need...</div>
+<div>Tools</div>
+<div><em>1.</em>Node.js<br>&nbsp;&nbsp;<em>2.</em>Scaling<br>&nbsp;&nbsp;&nbsp;<em>3.</em>APIs<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<em>4.</em>IPC<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<em>5.</em>Queues<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<em>6.</em>Data processing</div>
+<div><em>Node.js</em></div>
+<div>I/O</div>
+<div>Productivity!</div>
+<div>Fun :-)</div>
+<div>Not perfect...</div>
+<div><pre><code class="javascript">
+for(var i = 0; i < maxLineNumber; i++) {
+	DoSomething(fileName,i);
+}
+</code></pre></div>
+<div><pre><code class="javascript">
+var lineReader = require('line-reader');
+var async = require('async');
+//...
+lineReader.eachLine(fileName, function(line,last,next) {
+  loaderQ.push({data: line});
+  next();
+});
+
+var loaderQ = async.queue(function (data,next)
+{
+  StoreDataInDB(data,next)
+}, queueConcurrency);
+</code></pre></div>
+<div><em>Scaling...</em></div>
+<div>...with Node.js</div>
+<div>...with system tweaks</div>
+<div>...with multiple machines</div>
+<div><em>Talking to your platform...</em></div>
+<div>APIs!</div>
+<div>http(s)</div>
+<div>express.js</div>
+<div>restify</div>
+<div><pre><code class="javascript">
+var restify = require('restify');
+
+function OnTest(req, res, next) {
+  res.json({status: 'ok', name: req.params.name});
+}
+
+var server = restify.createServer();
+server.get('/test/:name',OnTest);
+
+server.listen(13000);
+</code></pre></div>
+<div>hapi</div>
+<div><pre><code class="javascript">
+var Hapi = require('hapi');
+var apiConfig = 
+{
+  handler: function (request) {
+    request.reply({status: 'ok', name: req.params.name});
+  },
+  validate: { 
+    payload: {
+      userdata: Hapi.Types.String().required()
+    }
+  }
+};
+var apiServer = Hapi.createServer(port);
+apiServer.route({
+  method: 'POST',
+  path: '/test/data',
+  config: apiConfig
+});
+apiServer.start();
+</code></pre></div>
+<div><em>Communication<br> inside the platform...</em></div>
+<div>IPC Options</div>
+<div>HTTP APIs</div>
+<div>hook.io</div>
+<div><pre><code class="javascript">
+var Hook = require('hook.io').Hook;
+
+var hook = new Hook({name:'MyHookService1'});
+
+hook.on('hook::ready', function (data) {
+  console.log('MyHookService1 started');
+});
+
+hook.on('*::DoStuff', function(data,callback){
+  console.log('event=%s => data=%s',this.event,data);
+  callback(null,'ok');
+});
+
+hook.start();
+</code></pre></div>
+<div><pre><code class="javascript">
+var Hook = require('hook.io').Hook;
+
+var hook = new Hook({name:'MyHookService2'});
+
+hook.on('hook::ready', function (data) {
+  hook.emit('DoStuff','data to process',
+    function(error,result){
+    console.log(result);
+  });
+});
+
+hook.start();
+</code></pre></div>
+<div>hook.io problems</div>
+<div>dnode</div>
+<div><pre><code class="javascript">
+var dnode = require('dnode');
+
+var server = dnode(function (remote, conn) {
+    this.DoStuff = function (data, callback) { 
+      console.log('data=%s',data);
+      callback('ok'); 
+    };
+});
+server.listen(13000);
+</code></pre></div>
+<div><pre><code class="javascript">
+var dnode = require('dnode');
+
+dnode.connect(13000, function (remote, conn) {
+    remote.DoStuff('data to process', 
+      function (result) {
+          console.log(result);
+          conn.end();
+    });
+});
+</code></pre></div>
+<div>ZeroMQ</div>
+<div>ZeroMQ communication patterns</div>
+<div><pre><code class="javascript">
+var zmq = require('zmq');
+
+var sock = zmq.socket('req');
+sock.connect('tcp://127.0.0.1:13000');
+
+var msgId = 1;
+setInterval(function(){
+  sock.send('msg#' + msgId++);
+}, 500);
+
+socket.on('message', function(rep) {
+  console.log('reply => ' + rep);
+});
+</code></pre></div>
+<div><pre><code class="javascript">
+var zmq = require('zmq');
+
+var sock = zmq.socket('rep');
+sock.bindSync('tcp://127.0.0.1:13000');
+
+sock.on('message', function(msg){
+  sock.send('rep: ' + msg);
+});
+</code></pre></div>
+<div><pre><code class="javascript">
+var zmq = require('zmq');
+
+var sock = zmq.socket('pub');
+sock.bindSync('tcp://127.0.0.1:13000');
+
+var msgId = 1;
+setInterval(function(){
+  sock.send('msg#' + msgId++);
+  sock.send('other#' + msgId++);
+}, 500);
+</code></pre></div>
+<div><pre><code class="javascript">
+var zmq = require('zmq');
+
+var sock = zmq.socket('sub');
+sock.connect('tcp://127.0.0.1:13000');
+sock.subscribe('msg');
+
+sock.on('message', function(msg){
+  //will not see messages prefixed with 'other'
+  console.log(msg.toString());
+});
+</code></pre></div>
+<div><pre><code class="javascript">
+var zmq = require('zmq');
+
+var sock = zmq.socket('push');
+sock.bindSync('tcp://127.0.0.1:13000');
+
+var msgId = 1;
+setInterval(function(){
+  sock.send('msg#' + msgId++);
+}, 500);
+</code></pre></div>
+<div><pre><code class="javascript">
+var zmq = require('zmq');
+
+var sock = zmq.socket('pull');
+sock.connect('tcp://127.0.0.1:13000');
+
+sock.on('message', function(msg){
+  console.log(msg);
+});
+</code></pre></div>
+<div>Things to keep in mind about ZeroMQ</div>
+<div>Other options:<br> stack.io, zerorpc</div>
+<div>How to encode data</div>
+<div>Serialized data size for<br> {title: 'something'}:<br><br>Protobufs: <em>11</em><br>MsgPack: <em>17</em><br>JSON: <em>21</em></div>
+<div>Serializing/Deserializing objects:<br><br>Protobufs: <em>15.79</em> us / object<br>MsgPack: <em>11.47</em> us / object<br>JSON: <em>2.37</em> us / object</div>
+<div><pre><code>
+package feeds;
+message Feed 
+{
+  optional string title = 1;
+  message Entry {
+    optional string title = 1;
+  }
+  repeated Entry entry = 2;
+}
+</code></pre></div>
+<div><pre><code class="javascript">
+var fs = require('fs');
+var msgpack = require('msgpack');
+var Schema = require('protobuf').Schema;
+var schema = new Schema(fs.readFileSync('feeds.desc'));
+var Feed = schema['feeds.Feed'];
+var o = {title: 'something'};
+
+//Protobufs:
+var pbSo = Feed.serialize(o);
+var pbDo = Feed.parse(pbSo);
+
+//MsgPack:
+var mpSo = msgpack.pack(o);
+var mpDo = msgpack.unpack(mpSo);
+
+//JSON:
+var jsSo = JSON.stringify(o);
+var jsDo = JSON.parse(jsSo);
+</code></pre></div>
+<div><em>Queues</em></div>
+<div>Task Queues</div>
+<div>kue</div>
+<div>Message Queues</div>
+<div>Kafka<br>
+RabbitMQ<br>
+Redis*<br>
+CouchDB*
+</div>
+<div>Kafka</div>
+<div><pre><code class="javascript">
+var Producer = require('Prozess').Producer;
+var producer = new Producer('demotopic', {host :'kafkaBrokerServer'});
+producer.connect();
+
+producer.on('error', function(err){console.log("Error: ", err);});
+producer.on('brokerReconnectError', function(err){
+  console.log("could not reconnect: ", err);   
+});
+
+var msgId = 1;
+setInterval(function(){
+  producer.send(JSON.stringify({"id": msgId++}), function(err){
+    if (err){ console.log("[%d] send error: ", msgId,err);} 
+    else { console.log("[%d] sent",msgId); }
+  });
+}, 1000);
+</code></pre></div>
+<div><pre><code class="javascript">
+var Consumer = require('Prozess').Consumer;
+var consumer = new Consumer({
+  host : 'kafkaBrokerServer', topic : 'demotopic', 
+  partition : 0, offset : 0});
+
+consumer.connect(function(err){
+  if (err){ throw "Kafka connection failure";}
+  console.log("consuming: " + consumer.topic);
+
+  setInterval(function(){
+    consumer.consume(function(err, messages){
+      if(err) {console.log('Error => %j',err);}
+      else {
+        messages.forEach(function(m){
+          //m: bytesLengthVal,magic,compression,checksum,payload
+          console.log(m.payload.toString('utf-8'));
+        });
+      }
+    });
+  }, 3000);
+});
+</code></pre></div>
+<div>Kafka libraries</div>
+<div>Prozess<br>franz-kafka<br>node-kafka</div>
+<div>Prozess</div>
+<div><em>*</em>Most active/recent node.js library<br>
+<em>*</em>Only low level Producer/Consumer APIs<br>
+<em>*</em>Consumer API gets only the latest messages<br>
+&nbsp;unless you know the exact message offset<br>
+&nbsp;(will release a version without this problem)<br>
+<em>*</em>No support for Kafka 0.8 yet
+</div>
+<div>franz-kafka</div>
+<div><em>*</em>Best high level Producer/Consumer APIs<br>
+<em>*</em>Latest code fails to install<br>
+&nbsp;(due to a missing git dependency)
+</div>
+<div>node-kafka</div>
+<div><em>*</em>3 versions<br>
+<em>*</em>Mostly low level Producer/Consumer API<br>
+<em>*</em>One version has basic high level APIs<br>
+<em>*</em>NPM installs the version from terrancesnyder<br>
+&nbsp;(which doesn't have high level APIs/zookeeper support)
+</div>
+<div>Things to keep in mind about Kafka</div>
+<div>New Kafka</div>
+<div><em>Data Processing Tools</em></div>
+<div>Realtime vs batch processing</div>
+<div>Need both!</div>
+<div><em>Realtime</em> processing with <em>Storm</em></div>
+<div>Node.js with Storm</div>
+<div><pre><code class="javascript">
+var Storm = require('./storm.js');
+var util = require('util');
+
+function TestSpout() 
+{
+  Storm.Spout.call(this);
+  var self = this;
+  self.on('ack',function(id){});
+  self.on('fail',function(id){});
+
+  self.on('next',function(done){
+    var sentences = 
+        ["the cow jumped over the moon",
+            "an apple a day keeps the doctor away",
+            "four score and seven years ago",
+            "snow white and the seven dwarfs",
+            "i am at two with nature"];      
+  self.stormEmit([sentences[Math.floor(Math.random() * sentences.length)]]);
+  done();
+  });
+}
+util.inherits(TestSpout, Storm.Spout);
+
+var test = new TestSpout();
+test.run();
+</code></pre></div>
+<div><pre><code class="javascript">
+var Storm = require('./storm.js');
+var util = require('util');
+
+function TestBolt() 
+{
+  Storm.Bolt.call(this);
+  var self = this;
+
+  self.on('tuple',data,function(done){
+    var words = data.tuple[0].split(" ");
+  
+  words.forEach(function(word,idx,all){
+    self.stormEmit([word],self);
+    if((all.length - 1) == idx) {
+      done(); //'acks' this tuple
+    }
+  });
+  });
+}
+util.inherits(TestBolt, Storm.Bolt);
+
+var test = new TestBolt();
+test.run();
+</code></pre></div>
+<div><pre><code class="javascript">
+public static class TestSpout extends ShellSpout implements IRichSpout {
+    public TestSpout() {
+        super("node", "storm-spout.js");
+    }
+    
+    @Override
+    public void declareOutputFields(OutputFieldsDeclarer declarer) {
+        declarer.declare(new Fields("line"));
+    }
+    
+    @Override
+    public Map<String, Object> getComponentConfiguration() {
+        return null;
+    }
+}
+</code></pre></div>
+<div><pre><code class="javascript">
+public static class TestBolt extends ShellBolt implements IRichBolt {
+    public TestBolt() {
+        super("node", "storm-bolt.js");
+    }
+
+    @Override
+    public void declareOutputFields(OutputFieldsDeclarer declarer) {
+        declarer.declare(new Fields("word"));
+    }
+
+    @Override
+    public Map<String, Object> getComponentConfiguration() {
+        return null;
+    }
+}
+</code></pre></div>
+<div><pre><code class="javascript">
+TopologyBuilder builder = new TopologyBuilder();
+builder.setSpout("spout", new TestSpout(), 5);
+
+builder.setBolt("split", new TestBolt(), 8)
+         .shuffleGrouping("spout");
+
+builder.setBolt("count", new WordCount(), 12)
+         .fieldsGrouping("split", new Fields("word"));
+</code></pre></div>
+<div><pre><code class="javascript">
+SpoutConfig spoutConfig = new SpoutConfig(
+    SpoutConfig.fromHostStrings(
+        //Kafka brokers
+        ImmutableList.of("kafkaBrokerHost1", "kafkaBrokerHost2"),
+        8), //Number of Kafka partitions
+        "sentences", //Kafka topic to read
+        "/kafkastorm", //Zookeeper root path to store consumer offsets
+        "wordcounter"); // an id for this consumer (group)
+
+TopologyBuilder builder = new TopologyBuilder();
+builder.setSpout("spout", new KafkaSpout(spoutConfig));
+</code></pre></div>
+<div>Storm libraries</div>
+<div>storm-node<br>storm-node-multilang</div>
+<div>storm-node</div>
+<div><em>*</em>"Official" library<br>
+<em>*</em>Implements only Bolts<br>
+<em>*</em>Doesn't work as-is :-)<br>
+&nbsp;(requires a one line fix)
+</div>
+<div>storm-node-multilang</div>
+<div><em>*</em>Implements Spouts and Bolts<br>
+<em>*</em>Doesn't work as-is :-)</div>
+<div><em>Batch</em> processing with <em>Hadoop</em></div>
+<div>Node.js and JavaScript with Hadoop</div>
+<div>DIY Hadoop streaming with node.js<br>
+'timothy' NPM module<br>
+Pig JavaScript UDFs<br>
+Pig 'STREAM' command with node.js
+</div>
+<div>Now you are <em>armed</em> and ready for action :-)</div>
+</body></html>
+
